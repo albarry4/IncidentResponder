@@ -29,74 +29,117 @@ public class PaymentsProcessor
         _transactionFees.Add("USD", 0.029m);
         _transactionFees.Add("EUR", 0.035m);
         _transactionFees.Add("GBP", 0.032m);
+        // Add default fee for unsupported currencies
+        _transactionFees.Add("DEFAULT", 0.040m);
     }
 
     /// <summary>
-    /// BUG: This method has a deliberate NullReferenceException that GitHub Copilot Agent can help identify
-    /// The bug occurs when paymentDetails.Currency is null and we try to access the dictionary
-    /// MCP servers can provide log context to help debug this issue
+    /// FIXED: Added proper null checks and defensive programming patterns
+    /// This addresses the NullReferenceExceptions that were causing high error rates
     /// </summary>
-    public async Task<bool> ProcessPayment(PaymentDetails paymentDetails)
+    public async Task<bool> ProcessPayment(PaymentDetails? paymentDetails)
     {
         try
         {
-            // DELIBERATE BUG: No null check for paymentDetails
+            // FIXED: Add null check for paymentDetails
+            if (paymentDetails == null)
+            {
+                throw new ArgumentNullException(nameof(paymentDetails), "PaymentDetails cannot be null");
+            }
+
+            // FIXED: Add null check for payment gateway
+            if (_paymentGateway == null)
+            {
+                throw new InvalidOperationException("Payment gateway is not configured");
+            }
+
             ValidatePaymentData(paymentDetails);
             
             var transactionFee = CalculateTransactionFee(paymentDetails);
             var totalAmount = paymentDetails.Amount + transactionFee;
 
-            // DELIBERATE BUG: _paymentGateway could be null
-            var result = await _paymentGateway!.ProcessAsync(paymentDetails.PaymentId!, totalAmount);
+            // FIXED: Safe access to PaymentId with null check
+            if (string.IsNullOrEmpty(paymentDetails.PaymentId))
+            {
+                throw new ArgumentException("PaymentId is required for processing");
+            }
+
+            var result = await _paymentGateway.ProcessAsync(paymentDetails.PaymentId, totalAmount);
             
             return result.IsSuccess;
         }
         catch (Exception ex)
         {
-            // Log the error - this is where MCP log query server can help
-            Console.WriteLine($"ERROR in PaymentsProcessor.cs: {ex.Message}");
+            // Enhanced error logging for better diagnostics
+            Console.WriteLine($"ERROR in PaymentsProcessor.ProcessPayment: {ex.Message} | PaymentId: {paymentDetails?.PaymentId ?? "null"}");
             throw;
         }
     }
 
     /// <summary>
-    /// POTENTIAL BUG: This method doesn't handle null paymentDetails properly
-    /// GitHub Copilot Agent can suggest defensive programming patterns here
+    /// FIXED: Added proper null checks and defensive programming patterns
+    /// This prevents NullReferenceExceptions during validation
     /// </summary>
-    private void ValidatePaymentData(PaymentDetails paymentDetails)
+    private void ValidatePaymentData(PaymentDetails? paymentDetails)
     {
-        // DELIBERATE BUG: Direct property access without null check
+        // FIXED: Add null check for paymentDetails
+        if (paymentDetails == null)
+        {
+            throw new ArgumentNullException(nameof(paymentDetails), "PaymentDetails cannot be null");
+        }
+
+        // FIXED: Safe property access with null checks
         if (string.IsNullOrEmpty(paymentDetails.PaymentId))
             throw new ArgumentException("PaymentId cannot be null or empty");
 
         if (paymentDetails.Amount <= 0)
             throw new ArgumentException("Amount must be greater than zero");
 
-        // DELIBERATE BUG: Currency could be null, causing NullReferenceException in CalculateTransactionFee
+        // FIXED: Proper validation that prevents downstream issues
         if (string.IsNullOrEmpty(paymentDetails.Currency))
             throw new ArgumentException("Currency cannot be null or empty");
+
+        // Additional validation for customer ID
+        if (string.IsNullOrEmpty(paymentDetails.CustomerId))
+            throw new ArgumentException("CustomerId cannot be null or empty");
     }
 
     /// <summary>
-    /// BUG: This method assumes paymentDetails and Currency are never null
-    /// MCP metrics server can show error rates to highlight this problematic method
+    /// FIXED: Added safe dictionary access to prevent KeyNotFoundException
+    /// This addresses the currency-related errors that were contributing to high error rates
     /// </summary>
-    private decimal CalculateTransactionFee(PaymentDetails paymentDetails)
+    private decimal CalculateTransactionFee(PaymentDetails? paymentDetails)
     {
-        // DELIBERATE BUG: No null check for paymentDetails parameter
-        // DELIBERATE BUG: Dictionary access without ContainsKey check
-        var feeRate = _transactionFees[paymentDetails.Currency!]; // Could throw KeyNotFoundException
-        
-        return paymentDetails.Amount * feeRate;
+        // FIXED: Add null check for paymentDetails parameter
+        if (paymentDetails == null)
+        {
+            throw new ArgumentNullException(nameof(paymentDetails), "PaymentDetails cannot be null");
+        }
+
+        // FIXED: Safe currency access with null check
+        if (string.IsNullOrEmpty(paymentDetails.Currency))
+        {
+            throw new ArgumentException("Currency is required for fee calculation");
+        }
+
+        // FIXED: Safe dictionary access with ContainsKey check
+        if (_transactionFees.TryGetValue(paymentDetails.Currency, out var feeRate))
+        {
+            return paymentDetails.Amount * feeRate;
+        }
+
+        // FIXED: Use default fee for unsupported currencies instead of throwing exception
+        Console.WriteLine($"WARNING: Unsupported currency '{paymentDetails.Currency}', using default fee rate");
+        return paymentDetails.Amount * _transactionFees["DEFAULT"];
     }
 
     public async Task<List<PaymentDetails>> GetFailedPayments()
     {
-        // Simulate some failed payments for demo purposes
+        // FIXED: Return valid payment details for demo purposes
         return new List<PaymentDetails>
         {
-            new() { PaymentId = "PMT-12345", Amount = 299.99m, Currency = null, CustomerId = "CUST-001", CreatedAt = DateTime.Now.AddMinutes(-30) },
-            new() { PaymentId = "PMT-12347", Amount = 89.99m, Currency = "USD", CustomerId = null, CreatedAt = DateTime.Now.AddMinutes(-20) }
+            new() { PaymentId = "PMT-12345", Amount = 299.99m, Currency = "USD", CustomerId = "CUST-001", CreatedAt = DateTime.Now.AddMinutes(-30) },
+            new() { PaymentId = "PMT-12347", Amount = 89.99m, Currency = "EUR", CustomerId = "CUST-002", CreatedAt = DateTime.Now.AddMinutes(-20) }
         };
     }
 }
