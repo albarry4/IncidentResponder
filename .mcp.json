@@ -20,6 +20,10 @@
         "LOG_PATH": "${input:log_path}"
       }
     },
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/"
+    },
     "metrics-server": {
       "type": "stdio",
       "command": "dotnet",
